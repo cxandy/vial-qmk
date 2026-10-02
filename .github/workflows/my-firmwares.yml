@@ -2,14 +2,31 @@
 #
 # 和 ci.yml 分开的原因：ci.yml 的 build-vial job 会跑 `qmk mass-compile -km vial`，
 # 也就是编译全仓库所有带 vial 键位的板子（本仓库有 638 个），需要数小时，
-# 对 fork 来说没有意义。这里用位置参数把范围限定到 AZSMZ/48key_rev。
+# 对 fork 来说没有意义。这里用矩阵把范围限定到 keyboards/AZSMZ/ 下的 4 块板。
 #
-# 用法：Actions 页面 → My Firmwares → Run workflow → 选 keymap。
+# 为什么不写成「1 个 job 编 4 块板」：qmk mass-compile 只要有任一目标失败就返回
+# 非零，整个 job 失败，一个 artifact 都拿不到——一块板坏掉等于四块板都没固件。
+# 矩阵 + fail-fast: false 之后，坏掉的那块变红，其余 3 块照常交付。
+#
+# 代价是每块板各付一次约 88s 的固定开销（容器初始化 28s + checkout 57s），
+# 但这 4 个 job 是并行的，墙上时间仍约 1m50s。公开 fork 的 Actions 分钟免费。
+#
+# 用法：Actions 页面 → My Firmwares → Run workflow → 选板子、选键位。
 name: My Firmwares
 
 on:
   workflow_dispatch:
     inputs:
+      board:
+        description: Which board to build
+        type: choice
+        options:
+          - all
+          - 30key
+          - 48key
+          - 48key_rev
+          - yut_50key
+        default: all
       keymap:
         description: Which keymap to build
         type: choice
@@ -24,27 +41,39 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # QMK 的键盘名，带厂商前缀，喂给 qmk mass-compile 用。
-  KEYBOARD: AZSMZ/48key_rev
-  # mass-compile 产出的固件名是 <键盘名>_<键位>.bin，其中 / 被换成 _，
-  # 所以 AZSMZ/48key_rev:vial 会得到 AZSMZ_48key_rev_vial.bin。
-  # 换板子时这两个值要一起改。
-  #
-  # 注意: TARGET 是用通配符 AZSMZ_48key_rev_*.bin 匹配的，而
-  # AZSMZ_48key_rev 是 AZSMZ_48key 的前缀，所以 TARGET 一旦改成
-  # AZSMZ_48key，通配符会把 48key_rev 的固件也一起捞进来，
-  # find | head -n 1 就可能挑错文件。届时需要按键位名精确匹配。
-  TARGET: AZSMZ_48key_rev
   REGEX_ANSI_COLOR: 's/\x1b\[[0-9;]*[mGKHF]//g'
   REGEX_MAKE_OUTPUT: '/^g*make\[1]: \(Enter\|Leav\)ing directory ''/d'
 
 permissions: {}
 
 jobs:
+  # 把下拉框的选择变成矩阵需要的 JSON 数组。
+  # 走 needs 而不是直接在 build 里筛：GitHub 的上下文可用性表里，matrix 在
+  # jobs.<id>.if 里是不可用的，所以没法用「if 跳过不相关的 job」那招。
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      boards: ${{ steps.pick.outputs.boards }}
+    steps:
+    - name: Pick boards
+      id: pick
+      run: |
+        if [ "${{ inputs.board }}" = all ]; then
+          echo 'boards=["30key","48key","48key_rev","yut_50key"]' >> "${GITHUB_OUTPUT}"
+        else
+          echo 'boards=["${{ inputs.board }}"]' >> "${GITHUB_OUTPUT}"
+        fi
+
   build:
-    name: Build AZSMZ/48key_rev
+    needs: select
+    name: Build AZSMZ/${{ matrix.board }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # 一块板坏了不要取消其余的，让好的板子照样出固件
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.select.outputs.boards) }}
     container: ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07
 
     steps:
@@ -57,15 +86,33 @@ jobs:
     - name: Resolve build targets
       id: targets
       run: |
-        case "${{ inputs.keymap }}" in
-          vial) echo "list=${KEYBOARD}:vial" >> "${GITHUB_OUTPUT}" ;;
-          test) echo "list=${KEYBOARD}:test" >> "${GITHUB_OUTPUT}" ;;
-          *)    echo "list=${KEYBOARD}:vial ${KEYBOARD}:test" >> "${GITHUB_OUTPUT}" ;;
-        esac
-        echo "Building: ${{ steps.targets.outputs.list }}"
+        keyboard="AZSMZ/${{ matrix.board }}"
+
+        # QMK 的固件名是 <键盘名>_<键位>.bin，其中 / 换成 _，
+        # 所以 AZSMZ/48key_rev:vial 会得到 AZSMZ_48key_rev_vial.bin。
+        echo "name=${keyboard//\//_}" >> "${GITHUB_OUTPUT}"
+
+        # 键位列表在运行时从仓库里探测，不写死。以后增删 keymaps/ 下的目录，
+        # 或者加上别的键位名，这个 workflow 都不用改。仓库本身就是事实来源。
+        list=""
+        for km in vial test; do
+          [ "${{ inputs.keymap }}" = all ] || [ "${{ inputs.keymap }}" = "${km}" ] || continue
+          [ -d "keyboards/${keyboard}/keymaps/${km}" ] || continue
+          list="${list} ${keyboard}:${km}"
+        done
+
+        if [ -z "${list}" ]; then
+          echo "::error::no matching keymap for ${keyboard} (requested keymap: ${{ inputs.keymap }})"
+          exit 1
+        fi
+
+        list="${list# }"
+        echo "list=${list}" >> "${GITHUB_OUTPUT}"
+        # 注意用 shell 变量而不是 ${{ steps.targets.outputs.list }}：
+        # 表达式是在 step 执行前展开的，在产生它的同一个 step 里引用恒为空。
+        echo "Building: ${list}"
 
     - name: Build
-      id: build
       run: |
         git config --global --add safe.directory $(pwd)
         if ! qmk mass-compile -j $(nproc) ${{ steps.targets.outputs.list }};
@@ -94,33 +141,46 @@ jobs:
         echo "QMK_HOME=${QMK_HOME:-unset}"
         echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-unset}"
 
-        found=""
-        for dir in "${GITHUB_WORKSPACE}/.build" "${GITHUB_WORKSPACE}" "${QMK_HOME:-/nonexistent}/.build"; do
-          match="$(find "${dir}" -maxdepth 1 -type f -name "${TARGET}_*.bin" 2>/dev/null | head -n 1)"
-          if [ -n "${match}" ]; then
-            found="${match}"
-            break
+        # 逐个按精确文件名找，不用通配符：AZSMZ_48key_rev 是 AZSMZ_48key 的
+        # 前缀，通配 AZSMZ_48key_*.bin 会把另一块板的固件一起捞进来。
+        files=""
+        for t in ${{ steps.targets.outputs.list }}; do
+          kb="${t%%:*}"
+          km="${t##*:}"
+          fn="${kb//\//_}_${km}.bin"
+
+          hit=""
+          for dir in "${GITHUB_WORKSPACE}/.build" "${GITHUB_WORKSPACE}" "${QMK_HOME:-/nonexistent}/.build"; do
+            hit="$(find "${dir}" -maxdepth 1 -type f -name "${fn}" 2>/dev/null | head -n 1)"
+            [ -n "${hit}" ] && break
+          done
+          if [ -z "${hit}" ]; then
+            hit="$(find / -type f -name "${fn}" 2>/dev/null | head -n 1)"
           fi
+          if [ -z "${hit}" ]; then
+            echo "::error::${fn} not found after a successful build"
+            exit 1
+          fi
+
+          echo "Found: ${hit}"
+          files="${files}${hit}"$'\n'
         done
-        if [ -z "${found}" ]; then
-          found="$(find / -type f -name "${TARGET}_*.bin" 2>/dev/null | head -n 1)"
-        fi
-        if [ -z "${found}" ]; then
-          echo "::error::no ${TARGET}_*.bin found after a successful build"
-          exit 1
-        fi
 
-        echo "Found: ${found}"
-        echo "dir=$(dirname "${found}")" >> "${GITHUB_OUTPUT}"
+        # upload-artifact 的 path 接受换行分隔的多条路径
+        {
+          echo 'files<<EOF'
+          printf '%s' "${files}"
+          echo 'EOF'
+        } >> "${GITHUB_OUTPUT}"
 
-    # Only .bin is produced: HEXFILE_ENABLE is not set in this keymap, so there
-    # is no .hex to collect. Add HEXFILE_ENABLE = yes to the keymap's rules.mk
-    # if you ever want an Intel HEX alongside it.
+    # Only .bin is produced: HEXFILE_ENABLE is not set in these keymaps, so
+    # there is no .hex to collect. Add HEXFILE_ENABLE = yes to the keymap's
+    # rules.mk if you ever want an Intel HEX alongside it.
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.TARGET }}-${{ inputs.keymap }}
-        path: ${{ steps.locate.outputs.dir }}/${{ env.TARGET }}_*.bin
+        name: ${{ steps.targets.outputs.name }}-${{ inputs.keymap }}
+        path: ${{ steps.locate.outputs.files }}
         # QMK writes to .build/, and upload-artifact v4 drops hidden directories
         # from glob results unless this is set, which silently yields nothing.
         include-hidden-files: true
