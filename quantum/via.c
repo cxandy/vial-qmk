@@ -568,6 +568,9 @@ void via_qmk_rgblight_set_value(uint8_t *data) {
             break;
         }
     }
+    /* Persist the change to EEPROM so LED settings survive power loss,
+     * instead of relying on the host sending a separate id_lighting_save. */
+    eeconfig_update_rgblight_current();
 }
 
 #endif // #if defined(VIA_QMK_RGBLIGHT_ENABLE)
