@@ -76,14 +76,25 @@ jobs:
     - name: Locate built firmware
       id: locate
       run: |
-        # mass-compile writes into QMK_FIRMWARE/.build, and inside this container
-        # QMK_HOME is not the checkout directory, so search by file name rather
-        # than assuming the artifacts sit next to the workflow.
+        # mass-compile puts the firmware in QMK_FIRMWARE/.build, and in this
+        # container QMK_HOME=/qmk_firmware is not the checkout directory, so
+        # the artifacts turn up in the workspace root instead. Check the known
+        # locations first, then fall back to a filesystem search.
         echo "cwd=$(pwd)"
         echo "QMK_HOME=${QMK_HOME:-unset}"
         echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-unset}"
 
-        found="$(find / -type f -name "${KEYBOARD}_*.bin" 2>/dev/null | head -n 1)"
+        found=""
+        for dir in "${GITHUB_WORKSPACE}/.build" "${GITHUB_WORKSPACE}" "${QMK_HOME:-/nonexistent}/.build"; do
+          match="$(find "${dir}" -maxdepth 1 -type f -name "${KEYBOARD}_*.bin" 2>/dev/null | head -n 1)"
+          if [ -n "${match}" ]; then
+            found="${match}"
+            break
+          fi
+        done
+        if [ -z "${found}" ]; then
+          found="$(find / -type f -name "${KEYBOARD}_*.bin" 2>/dev/null | head -n 1)"
+        fi
         if [ -z "${found}" ]; then
           echo "::error::no ${KEYBOARD}_*.bin found after a successful build"
           exit 1
@@ -92,11 +103,12 @@ jobs:
         echo "Found: ${found}"
         echo "dir=$(dirname "${found}")" >> "${GITHUB_OUTPUT}"
 
+    # Only .bin is produced: HEXFILE_ENABLE is not set in this keymap, so there
+    # is no .hex to collect. Add HEXFILE_ENABLE = yes to the keymap's rules.mk
+    # if you ever want an Intel HEX alongside it.
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.KEYBOARD }}-${{ inputs.keymap }}
-        path: |
-          ${{ steps.locate.outputs.dir }}/${{ env.KEYBOARD }}_*.bin
-          ${{ steps.locate.outputs.dir }}/${{ env.KEYBOARD }}_*.hex
+        path: ${{ steps.locate.outputs.dir }}/${{ env.KEYBOARD }}_*.bin
         if-no-files-found: error
