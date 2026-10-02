@@ -1,10 +1,11 @@
 #pragma once
 
 /* Vial 唯一的 8 字节键盘识别安全密钥 (UID)
- * 取 sha256("keyboards/48key_rev") 的前 8 字节，保证全仓库唯一
+ * 取 sha256("AZSMZ/48key_rev") 的前 8 字节，保证全仓库唯一
  * (上游 util/ci_vial_verify_uid.py 会校验此项)
+ * 用「厂商/产品」而不是目录路径做输入，这样以后调整目录层级不用重算。
  */
-#define VIAL_KEYBOARD_UID {0xA6, 0x8F, 0x8E, 0x03, 0x91, 0x57, 0x84, 0x44}
+#define VIAL_KEYBOARD_UID {0xA0, 0x6A, 0xF3, 0x4B, 0x39, 0x4B, 0xE2, 0x55}
 
 /* 为 Vial 客户端分配的层数 */
 #define DYNAMIC_KEYMAP_LAYER_COUNT 10

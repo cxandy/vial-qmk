@@ -1,7 +1,7 @@
 {
-    "keyboard_name": "My 48-Key Linear",
-    "manufacturer": "iHome",
-    "maintainer": "iMaker",
+    "keyboard_name": "AZSMZ 48key",
+    "manufacturer": "AZSMZ",
+    "maintainer": "AZSMZ",
     "usb": {
         "vid": "0xFEED",
         "pid": "0x0000",

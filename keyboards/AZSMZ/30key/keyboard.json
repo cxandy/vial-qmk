@@ -1,7 +1,7 @@
 {
-    "keyboard_name": "My 30-Key Linear",
-    "manufacturer": "iHome",
-    "maintainer": "iMaker",
+    "keyboard_name": "AZSMZ 30key",
+    "manufacturer": "AZSMZ",
+    "maintainer": "AZSMZ",
     "usb": {
         "vid": "0xFEED",
         "pid": "0x0000",
