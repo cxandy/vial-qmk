@@ -1,7 +1,7 @@
 {
     "keyboard_name": "My 30-Key Linear",
-    "manufacturer": "YourName",
-    "maintainer": "YourName",
+    "manufacturer": "iHome",
+    "maintainer": "iMaker",
     "usb": {
         "vid": "0xFEED",
         "pid": "0x0000",
