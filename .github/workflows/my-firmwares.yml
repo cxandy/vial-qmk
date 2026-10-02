@@ -33,7 +33,6 @@ on:
         options:
           - all
           - vial
-          - test
         default: all
 
 concurrency:
