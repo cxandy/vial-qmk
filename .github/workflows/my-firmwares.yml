@@ -1,0 +1,88 @@
+# 只编译我自己维护的板子的固件。
+#
+# 和 ci.yml 分开的原因：ci.yml 的 build-vial job 会跑 `qmk mass-compile -km vial`，
+# 也就是编译全仓库所有带 vial 键位的板子（本仓库有 638 个），需要数小时，
+# 对 fork 来说没有意义。这里用位置参数把范围限定到 yut_50key。
+#
+# 用法：Actions 页面 → My Firmwares → Run workflow → 选 keymap。
+name: My Firmwares
+
+on:
+  workflow_dispatch:
+    inputs:
+      keymap:
+        description: Which keymap to build
+        type: choice
+        options:
+          - all
+          - vial
+          - test
+        default: all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KEYBOARD: yut_50key
+  REGEX_ANSI_COLOR: 's/\x1b\[[0-9;]*[mGKHF]//g'
+  REGEX_MAKE_OUTPUT: '/^g*make\[1]: \(Enter\|Leav\)ing directory ''/d'
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build yut_50key
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07
+
+    steps:
+    - name: (actions) Checkout Vial repo
+      uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Resolve build targets
+      id: targets
+      run: |
+        case "${{ inputs.keymap }}" in
+          vial) echo "list=${KEYBOARD}:vial" >> "${GITHUB_OUTPUT}" ;;
+          test) echo "list=${KEYBOARD}:test" >> "${GITHUB_OUTPUT}" ;;
+          *)    echo "list=${KEYBOARD}:vial ${KEYBOARD}:test" >> "${GITHUB_OUTPUT}" ;;
+        esac
+        echo "Building: ${{ steps.targets.outputs.list }}"
+
+    - name: Build
+      id: build
+      run: |
+        git config --global --add safe.directory $(pwd)
+        if ! qmk mass-compile -j $(nproc) ${{ steps.targets.outputs.list }};
+          then
+          echo "::error::$(ls -1 .build/failed.log.* | wc -l) keymaps failed to build. See logs and/or job summary for details."
+          exit 1
+        fi
+
+    - name: Dump failure logs
+      if: ${{ failure() && steps.build.conclusion == 'failure' }}
+      run: |
+        echo '### Failure logs' | tee -a "${GITHUB_STEP_SUMMARY}"
+
+        cd .build || exit 1
+        for log in failed.log.*; do
+          pretty_logname="$(echo "${log}" | sed "s/^failed\.log\.[0-9]\+\.//")"
+
+          printf '\n::group::%s\n%s\n::endgroup::\n' "${pretty_logname}" "$(sed "${REGEX_MAKE_OUTPUT}" < "${log}")"
+          printf '\n<details>\n<summary>%s</summary>\n\n```\n%s\n```\n\n</details>\n' \
+             "${pretty_logname}" "$(sed "${REGEX_MAKE_OUTPUT} ; ${REGEX_ANSI_COLOR}" < "${log}")" >> "${GITHUB_STEP_SUMMARY}"
+        done
+
+    - name: Upload firmware
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.KEYBOARD }}-${{ inputs.keymap }}
+        path: |
+          .build/${{ env.KEYBOARD }}_*.bin
+          .build/${{ env.KEYBOARD }}_*.hex
+        if-no-files-found: error
