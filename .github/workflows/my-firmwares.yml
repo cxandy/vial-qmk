@@ -111,4 +111,7 @@ jobs:
       with:
         name: ${{ env.KEYBOARD }}-${{ inputs.keymap }}
         path: ${{ steps.locate.outputs.dir }}/${{ env.KEYBOARD }}_*.bin
+        # QMK writes to .build/, and upload-artifact v4 drops hidden directories
+        # from glob results unless this is set, which silently yields nothing.
+        include-hidden-files: true
         if-no-files-found: error
