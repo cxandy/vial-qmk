@@ -85,12 +85,16 @@ jobs:
 
     - name: Resolve build targets
       id: targets
+      # 这个容器里没有 bash，GitHub 会回退到 sh（Debian 的 dash）。
+      # 所以下面所有 step 都必须是 POSIX sh，不能用 ${var//x/y}、$'\n'
+      # 这类 bashism，否则会直接 Bad substitution / exit 2。
+      shell: sh
       run: |
         keyboard="AZSMZ/${{ matrix.board }}"
 
         # QMK 的固件名是 <键盘名>_<键位>.bin，其中 / 换成 _，
         # 所以 AZSMZ/48key_rev:vial 会得到 AZSMZ_48key_rev_vial.bin。
-        echo "name=${keyboard//\//_}" >> "${GITHUB_OUTPUT}"
+        echo "name=$(printf '%s' "${keyboard}" | tr '/' '_')" >> "${GITHUB_OUTPUT}"
 
         # 键位列表在运行时从仓库里探测，不写死。以后增删 keymaps/ 下的目录，
         # 或者加上别的键位名，这个 workflow 都不用改。仓库本身就是事实来源。
@@ -132,6 +136,7 @@ jobs:
 
     - name: Locate built firmware
       id: locate
+      shell: sh
       run: |
         # mass-compile puts the firmware in QMK_FIRMWARE/.build, and in this
         # container QMK_HOME=/qmk_firmware is not the checkout directory, so
@@ -143,35 +148,37 @@ jobs:
 
         # 逐个按精确文件名找，不用通配符：AZSMZ_48key_rev 是 AZSMZ_48key 的
         # 前缀，通配 AZSMZ_48key_*.bin 会把另一块板的固件一起捞进来。
-        files=""
+        manifest="$(mktemp)"
         for t in ${{ steps.targets.outputs.list }}; do
           kb="${t%%:*}"
           km="${t##*:}"
-          fn="${kb//\//_}_${km}.bin"
+          fn="$(printf '%s' "${kb}" | tr '/' '_')_${km}.bin"
 
           hit=""
           for dir in "${GITHUB_WORKSPACE}/.build" "${GITHUB_WORKSPACE}" "${QMK_HOME:-/nonexistent}/.build"; do
             hit="$(find "${dir}" -maxdepth 1 -type f -name "${fn}" 2>/dev/null | head -n 1)"
-            [ -n "${hit}" ] && break
+            if [ -n "${hit}" ]; then break; fi
           done
           if [ -z "${hit}" ]; then
             hit="$(find / -type f -name "${fn}" 2>/dev/null | head -n 1)"
           fi
           if [ -z "${hit}" ]; then
             echo "::error::${fn} not found after a successful build"
+            rm -f "${manifest}"
             exit 1
           fi
 
           echo "Found: ${hit}"
-          files="${files}${hit}"$'\n'
+          printf '%s\n' "${hit}" >> "${manifest}"
         done
 
         # upload-artifact 的 path 接受换行分隔的多条路径
         {
           echo 'files<<EOF'
-          printf '%s' "${files}"
+          cat "${manifest}"
           echo 'EOF'
         } >> "${GITHUB_OUTPUT}"
+        rm -f "${manifest}"
 
     # Only .bin is produced: HEXFILE_ENABLE is not set in these keymaps, so
     # there is no .hex to collect. Add HEXFILE_ENABLE = yes to the keymap's
