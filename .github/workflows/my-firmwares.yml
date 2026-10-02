@@ -2,7 +2,7 @@
 #
 # 和 ci.yml 分开的原因：ci.yml 的 build-vial job 会跑 `qmk mass-compile -km vial`，
 # 也就是编译全仓库所有带 vial 键位的板子（本仓库有 638 个），需要数小时，
-# 对 fork 来说没有意义。这里用位置参数把范围限定到 yut_50key。
+# 对 fork 来说没有意义。这里用位置参数把范围限定到 AZSMZ/48key_rev。
 #
 # 用法：Actions 页面 → My Firmwares → Run workflow → 选 keymap。
 name: My Firmwares
@@ -24,7 +24,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  KEYBOARD: yut_50key
+  # QMK 的键盘名，带厂商前缀，喂给 qmk mass-compile 用。
+  KEYBOARD: AZSMZ/48key_rev
+  # mass-compile 产出的固件名是 <键盘名>_<键位>.bin，其中 / 被换成 _，
+  # 所以 AZSMZ/48key_rev:vial 会得到 AZSMZ_48key_rev_vial.bin。
+  # 换板子时这两个值要一起改。
+  #
+  # 注意: TARGET 是用通配符 AZSMZ_48key_rev_*.bin 匹配的，而
+  # AZSMZ_48key_rev 是 AZSMZ_48key 的前缀，所以 TARGET 一旦改成
+  # AZSMZ_48key，通配符会把 48key_rev 的固件也一起捞进来，
+  # find | head -n 1 就可能挑错文件。届时需要按键位名精确匹配。
+  TARGET: AZSMZ_48key_rev
   REGEX_ANSI_COLOR: 's/\x1b\[[0-9;]*[mGKHF]//g'
   REGEX_MAKE_OUTPUT: '/^g*make\[1]: \(Enter\|Leav\)ing directory ''/d'
 
@@ -32,7 +42,7 @@ permissions: {}
 
 jobs:
   build:
-    name: Build yut_50key
+    name: Build AZSMZ/48key_rev
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container: ghcr.io/qmk/qmk_cli@sha256:2dc05fc9f32efebd6b05c2b8676ee548358bc7e151e9dbf4dac6b6eed4513b07
@@ -86,17 +96,17 @@ jobs:
 
         found=""
         for dir in "${GITHUB_WORKSPACE}/.build" "${GITHUB_WORKSPACE}" "${QMK_HOME:-/nonexistent}/.build"; do
-          match="$(find "${dir}" -maxdepth 1 -type f -name "${KEYBOARD}_*.bin" 2>/dev/null | head -n 1)"
+          match="$(find "${dir}" -maxdepth 1 -type f -name "${TARGET}_*.bin" 2>/dev/null | head -n 1)"
           if [ -n "${match}" ]; then
             found="${match}"
             break
           fi
         done
         if [ -z "${found}" ]; then
-          found="$(find / -type f -name "${KEYBOARD}_*.bin" 2>/dev/null | head -n 1)"
+          found="$(find / -type f -name "${TARGET}_*.bin" 2>/dev/null | head -n 1)"
         fi
         if [ -z "${found}" ]; then
-          echo "::error::no ${KEYBOARD}_*.bin found after a successful build"
+          echo "::error::no ${TARGET}_*.bin found after a successful build"
           exit 1
         fi
 
@@ -109,8 +119,8 @@ jobs:
     - name: Upload firmware
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.KEYBOARD }}-${{ inputs.keymap }}
-        path: ${{ steps.locate.outputs.dir }}/${{ env.KEYBOARD }}_*.bin
+        name: ${{ env.TARGET }}-${{ inputs.keymap }}
+        path: ${{ steps.locate.outputs.dir }}/${{ env.TARGET }}_*.bin
         # QMK writes to .build/, and upload-artifact v4 drops hidden directories
         # from glob results unless this is set, which silently yields nothing.
         include-hidden-files: true
