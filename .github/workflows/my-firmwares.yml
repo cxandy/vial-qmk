@@ -24,7 +24,7 @@ on:
           - all
           - 30key
           - 48key
-          - 48key_rev
+          - 48s
           - yut_50key
         default: all
       keymap:
@@ -58,7 +58,7 @@ jobs:
       id: pick
       run: |
         if [ "${{ inputs.board }}" = all ]; then
-          echo 'boards=["30key","48key","48key_rev","yut_50key"]' >> "${GITHUB_OUTPUT}"
+          echo 'boards=["30key","48key","48s","yut_50key"]' >> "${GITHUB_OUTPUT}"
         else
           echo 'boards=["${{ inputs.board }}"]' >> "${GITHUB_OUTPUT}"
         fi
@@ -92,7 +92,7 @@ jobs:
         keyboard="AZSMZ/${{ matrix.board }}"
 
         # QMK 的固件名是 <键盘名>_<键位>.bin，其中 / 换成 _，
-        # 所以 AZSMZ/48key_rev:vial 会得到 AZSMZ_48key_rev_vial.bin。
+        # 所以 AZSMZ/48s:vial 会得到 AZSMZ_48s_vial.bin。
         echo "name=$(printf '%s' "${keyboard}" | tr '/' '_')" >> "${GITHUB_OUTPUT}"
 
         # 键位列表在运行时从仓库里探测，不写死。以后增删 keymaps/ 下的目录，
@@ -146,7 +146,7 @@ jobs:
         echo "QMK_HOME=${QMK_HOME:-unset}"
         echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-unset}"
 
-        # 逐个按精确文件名找，不用通配符：AZSMZ_48key_rev 是 AZSMZ_48key 的
+        # 逐个按精确文件名找，不用通配符：AZSMZ_48s 是 AZSMZ_48key 的
         # 前缀，通配 AZSMZ_48key_*.bin 会把另一块板的固件一起捞进来。
         manifest="$(mktemp)"
         for t in ${{ steps.targets.outputs.list }}; do
