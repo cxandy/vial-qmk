@@ -2,7 +2,7 @@
 #
 # 和 ci.yml 分开的原因：ci.yml 的 build-vial job 会跑 `qmk mass-compile -km vial`，
 # 也就是编译全仓库所有带 vial 键位的板子（本仓库有 638 个），需要数小时，
-# 对 fork 来说没有意义。这里用矩阵把范围限定到 keyboards/AZSMZ/ 下的 4 块板。
+# 对 fork 来说没有意义。这里用矩阵把范围限定到 keyboards/azsmz/ 下的 4 块板。
 #
 # 为什么不写成「1 个 job 编 4 块板」：qmk mass-compile 只要有任一目标失败就返回
 # 非零，整个 job 失败，一个 artifact 都拿不到——一块板坏掉等于四块板都没固件。
@@ -65,7 +65,7 @@ jobs:
 
   build:
     needs: select
-    name: Build AZSMZ/${{ matrix.board }}
+    name: Build azsmz/${{ matrix.board }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -89,10 +89,10 @@ jobs:
       # 这类 bashism，否则会直接 Bad substitution / exit 2。
       shell: sh
       run: |
-        keyboard="AZSMZ/${{ matrix.board }}"
+        keyboard="azsmz/${{ matrix.board }}"
 
         # QMK 的固件名是 <键盘名>_<键位>.bin，其中 / 换成 _，
-        # 所以 AZSMZ/48s:vial 会得到 AZSMZ_48s_vial.bin。
+        # 所以 azsmz/48s:vial 会得到 azsmz_48s_vial.bin。
         echo "name=$(printf '%s' "${keyboard}" | tr '/' '_')" >> "${GITHUB_OUTPUT}"
 
         # 键位列表在运行时从仓库里探测，不写死。以后增删 keymaps/ 下的目录，
@@ -146,8 +146,8 @@ jobs:
         echo "QMK_HOME=${QMK_HOME:-unset}"
         echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-unset}"
 
-        # 逐个按精确文件名找，不用通配符：AZSMZ_48s 是 AZSMZ_48key 的
-        # 前缀，通配 AZSMZ_48key_*.bin 会把另一块板的固件一起捞进来。
+        # 逐个按精确文件名找，不用通配符：azsmz_48s 是 azsmz_48key 的
+        # 前缀，通配 azsmz_48key_*.bin 会把另一块板的固件一起捞进来。
         manifest="$(mktemp)"
         for t in ${{ steps.targets.outputs.list }}; do
           kb="${t%%:*}"
