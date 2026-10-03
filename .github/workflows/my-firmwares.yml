@@ -25,7 +25,7 @@ on:
           - 30key
           - 48key
           - 48s
-          - yut_50key
+          - yut_65key
         default: all
       keymap:
         description: Which keymap to build
@@ -58,7 +58,7 @@ jobs:
       id: pick
       run: |
         if [ "${{ inputs.board }}" = all ]; then
-          echo 'boards=["30key","48key","48s","yut_50key"]' >> "${GITHUB_OUTPUT}"
+          echo 'boards=["30key","48key","48s","yut_65key"]' >> "${GITHUB_OUTPUT}"
         else
           echo 'boards=["${{ inputs.board }}"]' >> "${GITHUB_OUTPUT}"
         fi
